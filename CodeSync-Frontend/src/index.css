@@ -1,0 +1,226 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 220 16% 8%;
+    --foreground: 210 40% 98%;
+
+    --card: 220 16% 11%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 220 16% 11%;
+    --popover-foreground: 210 40% 98%;
+
+    --primary: 142 71% 45%;
+    --primary-foreground: 220 16% 8%;
+
+    --secondary: 220 16% 16%;
+    --secondary-foreground: 210 40% 98%;
+
+    --muted: 220 16% 18%;
+    --muted-foreground: 215 20% 55%;
+
+    --accent: 262 83% 58%;
+    --accent-foreground: 210 40% 98%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 220 16% 20%;
+    --input: 220 16% 20%;
+    --ring: 142 71% 45%;
+
+    --radius: 0.5rem;
+
+    /* Custom semantic tokens */
+    --editor-bg: 220 16% 6%;
+    --editor-gutter: 220 16% 10%;
+    --editor-line-highlight: 220 16% 12%;
+    
+    --sidebar-bg: 220 16% 9%;
+    --sidebar-border: 220 16% 15%;
+    
+    --video-overlay: 220 16% 5%;
+    --video-border: 220 16% 25%;
+    
+    --chat-bubble-self: 142 71% 45%;
+    --chat-bubble-other: 220 16% 18%;
+    
+    --presence-online: 142 71% 45%;
+    --presence-away: 45 93% 47%;
+    --presence-busy: 0 84% 60%;
+    
+    --cursor-1: 142 71% 45%;
+    --cursor-2: 262 83% 58%;
+    --cursor-3: 199 89% 48%;
+    --cursor-4: 45 93% 47%;
+    --cursor-5: 340 82% 52%;
+    --cursor-6: 25 95% 53%;
+
+    --glow-primary: 0 0 20px hsl(142 71% 45% / 0.3);
+    --glow-accent: 0 0 20px hsl(262 83% 58% / 0.3);
+    
+    --gradient-primary: linear-gradient(135deg, hsl(142 71% 45%), hsl(142 71% 35%));
+    --gradient-accent: linear-gradient(135deg, hsl(262 83% 58%), hsl(280 83% 48%));
+    --gradient-editor: linear-gradient(180deg, hsl(220 16% 8%), hsl(220 16% 6%));
+  }
+
+  .dark {
+    --background: 220 16% 8%;
+    --foreground: 210 40% 98%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+
+  code, pre, .font-mono {
+    font-family: 'JetBrains Mono', monospace;
+  }
+}
+
+@layer components {
+  .glass-panel {
+    @apply bg-card/80 backdrop-blur-xl border border-border/50 rounded-lg;
+  }
+
+  .glow-border {
+    @apply relative;
+    box-shadow: var(--glow-primary);
+  }
+
+  .glow-border-accent {
+    box-shadow: var(--glow-accent);
+  }
+
+  .editor-container {
+    background: linear-gradient(180deg, hsl(var(--editor-bg)), hsl(var(--background)));
+  }
+
+  .video-tile {
+    @apply relative overflow-hidden rounded-xl border-2 transition-all duration-300;
+    border-color: hsl(var(--video-border));
+  }
+
+  .video-tile:hover {
+    border-color: hsl(var(--primary));
+    box-shadow: var(--glow-primary);
+  }
+
+  .presence-dot {
+    @apply w-2.5 h-2.5 rounded-full;
+    animation: pulse-glow 2s ease-in-out infinite;
+  }
+
+  .presence-online {
+    @apply bg-green-500;
+    box-shadow: 0 0 8px hsl(var(--presence-online));
+  }
+
+  .presence-away {
+    @apply bg-yellow-500;
+    box-shadow: 0 0 8px hsl(var(--presence-away));
+  }
+
+  .cursor-label {
+    @apply absolute px-2 py-0.5 text-xs font-medium rounded-md -top-6 left-0 whitespace-nowrap;
+    animation: fade-in 0.2s ease-out;
+  }
+
+  .typing-indicator {
+    @apply flex gap-1 items-center px-3 py-2;
+  }
+
+  .typing-indicator span {
+    @apply w-2 h-2 rounded-full bg-primary;
+    animation: typing-bounce 1.4s ease-in-out infinite;
+  }
+
+  .typing-indicator span:nth-child(1) { animation-delay: 0s; }
+  .typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
+  .typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted)) transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted));
+    border-radius: 3px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground));
+  }
+}
+
+@layer utilities {
+  .text-gradient-primary {
+    @apply bg-clip-text text-transparent;
+    background-image: var(--gradient-primary);
+  }
+
+  .text-gradient-accent {
+    @apply bg-clip-text text-transparent;
+    background-image: var(--gradient-accent);
+  }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.7; transform: scale(1.1); }
+}
+
+@keyframes typing-bounce {
+  0%, 60%, 100% { transform: translateY(0); }
+  30% { transform: translateY(-4px); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes cursor-blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+
+/* Monaco Editor Customizations */
+.monaco-editor {
+  background: transparent !important;
+}
+
+.monaco-editor .margin {
+  background: hsl(var(--editor-gutter)) !important;
+}
+
+.monaco-editor .current-line ~ .line-numbers {
+  color: hsl(var(--primary)) !important;
+}
