@@ -20,6 +20,9 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import com.codesync.dto.room.RoomFileDto;
+import com.codesync.repository.RoomFileRepository;
+import com.codesync.repository.CodeCommentRepository;
 
 @Service
 @RequiredArgsConstructor
@@ -30,6 +33,9 @@ public class RoomService {
     private final RoomPermissionsRepository permissionsRepository;
     private final AuthorizationService authorizationService;
     private final SimpMessagingTemplate messagingTemplate;
+    private final RoomFileService roomFileService;
+    private final RoomFileRepository roomFileRepository;
+    private final CodeCommentRepository codeCommentRepository;
 
     private static final List<String> COLOR_PALETTE = List.of(
             "#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4", "#FFEAA7", "#DDA0DD", "#98D8C8"
@@ -37,7 +43,10 @@ public class RoomService {
 
     @Transactional
     public RoomDto createRoom(String name, String language, String userId, String username) {
+        String roomId = generateRoomId();
+        
         Room room = Room.builder()
+                .id(roomId)
                 .name(name)
                 .language(language)
                 .code("")
@@ -66,6 +75,10 @@ public class RoomService {
                 .isHost(true)
                 .build();
         participantRepository.save(host);
+
+        // Create initial default file
+        String fileName = "Main." + (language.equalsIgnoreCase("java") ? "java" : "py");
+        roomFileService.createFile(room.getId(), fileName, language);
 
         return getRoom(room.getId(), userId);
     }
@@ -162,6 +175,7 @@ public class RoomService {
     }
 
     private RoomDto mapToRoomDto(Room room, List<RoomParticipant> participants, RoomPermissions permissions) {
+        List<RoomFileDto> files = roomFileService.getFilesByRoom(room.getId());
         return RoomDto.builder()
                 .id(room.getId())
                 .name(room.getName())
@@ -171,6 +185,7 @@ public class RoomService {
                 .isActive(room.getIsActive())
                 .createdAt(room.getCreatedAt())
                 .participants(participants.stream().map(this::mapToParticipantDto).collect(Collectors.toList()))
+                .files(files)
                 .permissions(mapToPermissionsDto(permissions))
                 .build();
     }
@@ -196,5 +211,22 @@ public class RoomService {
                 .canVideo(p.getCanVideo())
                 .canAudio(p.getCanAudio())
                 .build();
+    }
+
+    private String generateRoomId() {
+        String chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+        java.util.Random rnd = new java.security.SecureRandom();
+        return String.format("%s-%s-%s",
+            generateRandomString(chars, rnd, 3),
+            generateRandomString(chars, rnd, 3),
+            generateRandomString(chars, rnd, 3));
+    }
+
+    private String generateRandomString(String chars, java.util.Random rnd, int length) {
+        StringBuilder sb = new StringBuilder(length);
+        for(int i = 0; i < length; i++) {
+            sb.append(chars.charAt(rnd.nextInt(chars.length())));
+        }
+        return sb.toString();
     }
 }

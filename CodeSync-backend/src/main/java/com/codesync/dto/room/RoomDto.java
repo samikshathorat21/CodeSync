@@ -21,5 +21,6 @@ public class RoomDto {
     private Boolean isActive;
     private LocalDateTime createdAt;
     private List<ParticipantDto> participants;
+    private List<RoomFileDto> files;
     private PermissionsDto permissions;
 }

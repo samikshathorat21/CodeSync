@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useCallback } from 'react';
 import Editor, { OnMount, OnChange } from '@monaco-editor/react';
 import { motion } from 'framer-motion';
-import { Language, CursorPosition } from '@/types/collaboration';
+import { Language, CursorPosition, CodeComment } from '@/types/collaboration';
 
 interface ViewportUser {
   userId: string;
@@ -16,9 +16,11 @@ interface CodeEditorProps {
   language: Language;
   onChange: (value: string) => void;
   onViewportChange?: (startLine: number, endLine: number) => void;
-  onCursorChange?: (position: Omit<CursorPosition, 'userId' | 'userName' | 'color'>) => void;
   viewports?: Map<string, ViewportUser>;
   cursors?: Map<string, CursorPosition>;
+  typingUsers?: Map<string, { userName: string; color: string; timestamp: number }>;
+  comments?: CodeComment[];
+  onAddComment?: (line: number) => void;
   currentUserId?: string;
   readOnly?: boolean;
 }
@@ -36,6 +38,9 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
   onCursorChange,
   viewports,
   cursors,
+  typingUsers,
+  comments,
+  onAddComment,
   currentUserId,
   readOnly = false,
 }) => {
@@ -43,6 +48,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
   const monacoRef = useRef<any>(null);
   const decorationsRef = useRef<string[]>([]);
   const cursorDecorationsRef = useRef<string[]>([]);
+  const commentDecorationsRef = useRef<string[]>([]);
   const viewportThrottleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cursorThrottleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -90,26 +96,15 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
       // Skip current user's cursor
       if (cursor.userId === currentUserId) return;
       
-      // Create cursor line decoration with user name label
+      const shortId = cursor.userId.slice(0, 8);
+      
+      // Create cursor caret decoration
       newDecorations.push({
         range: new monaco.Range(cursor.line, cursor.column, cursor.line, cursor.column + 1),
         options: {
-          className: `remote-cursor-${cursor.userId.slice(0, 8)}`,
-          beforeContentClassName: `remote-cursor-caret`,
-          hoverMessage: { value: `**${cursor.userName}** is editing here` },
+          className: `remote-cursor-${shortId}`,
           stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
-        },
-      });
-      
-      // Add user name label above cursor
-      newDecorations.push({
-        range: new monaco.Range(cursor.line, cursor.column, cursor.line, cursor.column),
-        options: {
-          before: {
-            content: ` ${cursor.userName} `,
-            inlineClassName: 'remote-cursor-label',
-            inlineClassNameAffectsLetterSpacing: true,
-          },
+          hoverMessage: { value: `**${cursor.userName}** is editing here` },
         },
       });
       
@@ -123,15 +118,32 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
             cursor.selection.endColumn
           ),
           options: {
-            className: 'remote-selection',
-            hoverMessage: { value: `${cursor.userName}'s selection` },
+            className: `remote-selection-${shortId}`,
           },
         });
       }
     });
     
     cursorDecorationsRef.current = editor.deltaDecorations(cursorDecorationsRef.current, newDecorations);
-  }, [cursors, currentUserId]);
+  }, [cursors, currentUserId, typingUsers]);
+
+  const updateCommentDecorations = useCallback(() => {
+    if (!editorRef.current || !monacoRef.current || !comments) return;
+    
+    const editor = editorRef.current;
+    const monaco = monacoRef.current;
+    
+    const newDecorations = comments.map(comment => ({
+      range: new monaco.Range(comment.line, 1, comment.line, 1),
+      options: {
+        isWholeLine: false,
+        glyphMarginClassName: 'comment-glyph',
+        glyphMarginHoverMessage: { value: `💬 ${comment.userName}: ${comment.content}` },
+      }
+    }));
+    
+    commentDecorationsRef.current = editor.deltaDecorations(commentDecorationsRef.current, newDecorations);
+  }, [comments]);
 
   useEffect(() => {
     updateViewportDecorations();
@@ -140,6 +152,10 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
   useEffect(() => {
     updateCursorDecorations();
   }, [cursors, updateCursorDecorations]);
+
+  useEffect(() => {
+    updateCommentDecorations();
+  }, [comments, updateCommentDecorations]);
 
   // Update readOnly state when it changes
   useEffect(() => {
@@ -265,9 +281,19 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
     // Initial viewport broadcast
     setTimeout(broadcastViewport, 500);
     
+    // Add gutter click listener for comments
+    editor.onMouseDown((e: any) => {
+      if (e.target.type === monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN || 
+          e.target.type === monaco.editor.MouseTargetType.GUTTER_LINE_NUMBERS) {
+        const line = e.target.position.lineNumber;
+        onAddComment?.(line);
+      }
+    });
+
     // Update decorations on mount
     updateViewportDecorations();
     updateCursorDecorations();
+    updateCommentDecorations();
   };
 
   const handleChange: OnChange = (value) => {
@@ -284,10 +310,40 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
     cursors.forEach((cursor) => {
       if (cursor.userId === currentUserId) return;
       
+      const shortId = cursor.userId.slice(0, 8);
+      const color = cursor.color;
+      const isTyping = typingUsers?.has(cursor.userId);
+      
       styles += `
-        .remote-cursor-${cursor.userId.slice(0, 8)} {
-          border-left: 2px solid ${cursor.color} !important;
-          position: relative;
+        .remote-cursor-${shortId} {
+          border-left: 2px solid ${color} !important;
+          z-index: 10;
+        }
+        .remote-cursor-${shortId}::after {
+          content: "${cursor.userName}";
+          position: absolute;
+          top: -18px;
+          left: -1px;
+          background-color: ${color};
+          color: white;
+          font-size: 10px;
+          font-weight: 600;
+          padding: 1px 6px;
+          border-radius: 4px 4px 4px 0;
+          white-space: nowrap;
+          pointer-events: none;
+          z-index: 11;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+          opacity: ${isTyping ? '0.9' : '0'};
+          transform: translateY(${isTyping ? '0' : '4px'});
+          transition: opacity 0.2s, transform 0.2s;
+        }
+        .remote-cursor-${shortId}:hover::after {
+          opacity: 0.9;
+          transform: translateY(0);
+        }
+        .remote-selection-${shortId} {
+          background-color: ${color}33 !important;
         }
       `;
     });
@@ -303,8 +359,8 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
     >
       <style>{`
         .viewport-line-highlight {
-          background-color: rgba(34, 197, 94, 0.08) !important;
-          border-left: 2px solid rgba(34, 197, 94, 0.5);
+          background-color: rgba(34, 197, 94, 0.05) !important;
+          border-left: 2px solid rgba(34, 197, 94, 0.3);
         }
         .viewport-glyph {
           background-color: rgba(34, 197, 94, 0.6);
@@ -313,24 +369,11 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
           width: 8px !important;
           height: 8px !important;
         }
-        .remote-cursor-caret {
-          border-left: 2px solid currentColor;
-          animation: blink 1s step-end infinite;
-        }
-        .remote-cursor-label {
-          position: relative;
-          top: -1.2em;
-          font-size: 10px;
-          padding: 1px 4px;
-          border-radius: 3px;
-          background-color: var(--cursor-color, #22c55e);
-          color: white;
-          font-weight: 500;
-          white-space: nowrap;
-          z-index: 100;
-        }
-        .remote-selection {
-          background-color: rgba(34, 197, 94, 0.2) !important;
+        .comment-glyph {
+          background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2322c55e' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z'%3E%3C/path%3E%3C/svg%3E");
+          background-repeat: no-repeat;
+          background-position: center;
+          cursor: pointer;
         }
         @keyframes blink {
           50% { opacity: 0; }

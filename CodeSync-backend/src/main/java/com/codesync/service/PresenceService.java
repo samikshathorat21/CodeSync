@@ -33,11 +33,11 @@ public class PresenceService {
     // userId lookup by sessionId
     private final Map<String, String> sessionUsers = new ConcurrentHashMap<>();
 
-    private static final long PRESENCE_TTL_SECONDS = 35;
+    private static final long PRESENCE_TTL_SECONDS = 60;
 
     public void join(String roomId, String userId, String username, String sessionId) {
-        roomPresence.computeIfAbsent(roomId, k -> new ConcurrentHashMap<>())
-                .put(userId, Instant.now().plusSeconds(PRESENCE_TTL_SECONDS));
+        Map<String, Instant> users = roomPresence.computeIfAbsent(roomId, k -> new ConcurrentHashMap<>());
+        users.put(userId, Instant.now().plusSeconds(PRESENCE_TTL_SECONDS));
 
         if (sessionId != null) {
             sessionRooms.computeIfAbsent(sessionId, k -> ConcurrentHashMap.newKeySet())
@@ -49,9 +49,21 @@ public class PresenceService {
     }
 
     public void heartbeat(String roomId, String userId) {
-        Map<String, Instant> users = roomPresence.get(roomId);
-        if (users != null) {
-            users.put(userId, Instant.now().plusSeconds(PRESENCE_TTL_SECONDS));
+        boolean wasMissing = false;
+        Map<String, Instant> users = roomPresence.computeIfAbsent(roomId, k -> {
+            return new ConcurrentHashMap<>();
+        });
+        
+        if (!users.containsKey(userId)) {
+            wasMissing = true;
+        }
+        
+        users.put(userId, Instant.now().plusSeconds(PRESENCE_TTL_SECONDS));
+        
+        // If they were timed out but are still here, broadcast so they reappear for others
+        if (wasMissing) {
+            log.info("User {} restored to room {} via heartbeat", userId, roomId);
+            broadcastPresence(roomId, "join", userId, null);
         }
     }
 

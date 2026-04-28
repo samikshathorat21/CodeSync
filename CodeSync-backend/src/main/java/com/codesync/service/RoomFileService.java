@@ -28,9 +28,25 @@ public class RoomFileService {
                 .roomId(roomId)
                 .name(name)
                 .language(language)
-                .content("")
+                .content(getStarterCode(language, name))
                 .build();
         return mapToDto(fileRepository.save(file));
+    }
+
+    private String getStarterCode(String language, String fileName) {
+        if ("java".equalsIgnoreCase(language)) {
+            String className = fileName.replace(".java", "");
+            if (!className.matches("^[a-zA-Z0-9_]+$")) className = "Main";
+            return "public class " + className + " {\n" +
+                   "    public static void main(String[] args) {\n" +
+                   "        System.out.println(\"Hello from " + fileName + "!\");\n" +
+                   "    }\n" +
+                   "}";
+        } else if ("python".equalsIgnoreCase(language)) {
+            return "# Python script: " + fileName + "\n" +
+                   "print(\"Hello from " + fileName + "!\")\n";
+        }
+        return "";
     }
 
     @Transactional

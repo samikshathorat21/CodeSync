@@ -49,7 +49,7 @@ public class Room {
     @PrePersist
     protected void onCreate() {
         if (id == null) {
-            id = UUID.randomUUID().toString();
+            id = generateShortId();
         }
         if (createdAt == null) {
             createdAt = LocalDateTime.now();
@@ -58,4 +58,22 @@ public class Room {
             updatedAt = LocalDateTime.now();
         }
     }
+
+    private String generateShortId() {
+        String chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+        java.util.Random rnd = new java.security.SecureRandom();
+        return String.format("%s-%s-%s",
+            generateRandomString(chars, rnd, 3),
+            generateRandomString(chars, rnd, 3),
+            generateRandomString(chars, rnd, 3));
+    }
+
+    private String generateRandomString(String chars, java.util.Random rnd, int length) {
+        StringBuilder sb = new StringBuilder(length);
+        for(int i = 0; i < length; i++) {
+            sb.append(chars.charAt(rnd.nextInt(chars.length())));
+        }
+        return sb.toString();
+    }
 }
+

@@ -1,0 +1,23 @@
+# IDE
+.idea
+
+# Env files (ALL env files anywhere)
+.env
+.env.*
+!.env.example
+
+# Node / frontend
+node_modules
+dist
+.vite
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Java / backend (Spring Boot, etc.)
+target/
+*.class

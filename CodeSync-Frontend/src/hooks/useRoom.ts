@@ -6,6 +6,9 @@ import {
   ChatMessage,
   CursorPosition,
   Language,
+  ExecutionResult,
+  RoomFile,
+  CodeComment,
 } from '@/types/collaboration';
 import { getDefaultTemplate } from '@/constants/codeTemplates';
 import { apiClient } from '@/integrations/api/http';
@@ -31,6 +34,12 @@ export const useRoom = (roomId?: string) => {
   const [isConnected, setIsConnected] = useState(false);
   const [loading, setLoading] = useState(false);
   const [activeRoomId, setActiveRoomId] = useState<string | undefined>(roomId);
+  const [isRunning, setIsRunning] = useState(false);
+  const [executionResult, setExecutionResult] = useState<ExecutionResult | null>(null);
+  const [isOutputVisible, setIsOutputVisible] = useState(false);
+  const [files, setFiles] = useState<RoomFile[]>([]);
+  const [activeFileId, setActiveFileId] = useState<string | null>(null);
+  const [comments, setComments] = useState<CodeComment[]>([]);
 
   const subscriptions = useRef<any[]>([]);
 
@@ -41,7 +50,7 @@ export const useRoom = (roomId?: string) => {
       
       setRoom({
         ...data,
-        participants: data.participants.map((p: any) => ({
+        participants: (data.participants || []).map((p: any) => ({
           id: p.userId,
           name: p.username,
           color: p.cursorColor,
@@ -50,11 +59,25 @@ export const useRoom = (roomId?: string) => {
         })),
         createdAt: new Date(data.createdAt),
       });
-      const isValidLanguage = ['java', 'python'].includes(data.language);
-      const safeLanguage = (isValidLanguage ? data.language : 'java') as Language;
-      
-      setCode(data.code || getDefaultTemplate(safeLanguage));
-      setLanguage(safeLanguage);
+
+      const roomFiles = (data.files || []).map((f: any) => ({
+        ...f,
+        updatedAt: new Date(f.updatedAt),
+      }));
+      console.log('Fetched room files:', roomFiles);
+      setFiles(roomFiles);
+
+      if (roomFiles.length > 0) {
+        const firstFile = roomFiles[0];
+        setActiveFileId(firstFile.id);
+        setCode(firstFile.content || getDefaultTemplate(firstFile.language as Language));
+        setLanguage(firstFile.language as Language);
+      } else {
+        const isValidLanguage = ['java', 'python'].includes(data.language);
+        const safeLanguage = (isValidLanguage ? data.language : 'java') as Language;
+        setCode(data.code || getDefaultTemplate(safeLanguage));
+        setLanguage(safeLanguage);
+      }
       
       const me = data.participants.find((p: any) => p.userId === user?.id);
       if (me) {
@@ -117,7 +140,7 @@ export const useRoom = (roomId?: string) => {
               setTypingUsers((prev) => {
                 const next = new Map(prev);
                 if (data.isTyping) {
-                  next.set(data.userId, { userName: data.userName, color: '#ccc', timestamp: Date.now() });
+                  next.set(data.userId, { userName: data.userName, color: data.color || '#ccc', timestamp: Date.now() });
                 } else {
                   next.delete(data.userId);
                 }
@@ -194,6 +217,49 @@ export const useRoom = (roomId?: string) => {
               setLanguage(data.language);
             }
           }),
+          stompClient.subscribe(`/topic/room/${activeRoomId}/execution`, (msg) => {
+            const data = JSON.parse(msg.body);
+            if (data.type === 'START') {
+              setIsRunning(true);
+              setExecutionResult(null);
+              setIsOutputVisible(true);
+              if (data.userId !== user.id) {
+                toast.info(`${data.userName} is running the code...`);
+              }
+            } else if (data.type === 'SUCCESS') {
+              setIsRunning(false);
+              setExecutionResult(data.result);
+            } else if (data.type === 'ERROR') {
+              setIsRunning(false);
+              setExecutionResult({
+                output: '',
+                error: data.error,
+                executionTime: 0
+              });
+              toast.error(data.error);
+            }
+          }),
+          stompClient.subscribe(`/topic/room/${activeRoomId}/files`, (msg) => {
+            const data = JSON.parse(msg.body);
+            console.log('Received file event:', data);
+            if (data.type === 'CREATE') {
+              setFiles((prev) => {
+                console.log('Previous files:', prev);
+                const newFiles = [...prev, { ...data.file, updatedAt: new Date(data.file.updatedAt) }];
+                console.log('New files:', newFiles);
+                return newFiles;
+              });
+              toast.info(`New file created: ${data.file.name}`);
+            }
+          }),
+          stompClient.subscribe(`/topic/room/${activeRoomId}/comments`, (msg) => {
+            const data = JSON.parse(msg.body);
+            if (data.type === 'ADD') {
+              setComments((prev) => [...prev, { ...data.comment, createdAt: new Date(data.comment.createdAt) }]);
+            } else if (data.type === 'DELETE') {
+              setComments((prev) => prev.filter(c => c.id !== data.commentId));
+            }
+          }),
         ];
         
         subscriptions.current = subs;
@@ -206,7 +272,7 @@ export const useRoom = (roomId?: string) => {
           if (stompClient.connected) {
             stompClient.publish({ destination: `/app/room/${activeRoomId}/presence/heartbeat` });
           }
-        }, 15000);
+        }, 10000);
         
         subscriptions.current.push({
           unsubscribe: () => clearInterval(intervalId)
@@ -231,10 +297,13 @@ export const useRoom = (roomId?: string) => {
     if (stompClient.connected && activeRoomId) {
       stompClient.publish({
         destination: `/app/room/${activeRoomId}/code`,
-        body: JSON.stringify({ code: newCode }),
+        body: JSON.stringify({ 
+          code: newCode,
+          fileId: activeFileId 
+        }),
       });
     }
-  }, [activeRoomId]);
+  }, [activeRoomId, activeFileId]);
 
   const updateLanguage = useCallback((lang: Language, newCode: string) => {
     setLanguage(lang);
@@ -323,6 +392,36 @@ export const useRoom = (roomId?: string) => {
     setIsConnected(false);
   }, []);
 
+  const switchFile = useCallback((fileId: string) => {
+    const file = files.find((f) => f.id === fileId);
+    if (file) {
+      setActiveFileId(fileId);
+      setCode(file.content);
+      setLanguage(file.language as Language);
+    }
+  }, [files]);
+
+  const createFileInRoom = useCallback((name: string, language: string) => {
+    if (stompClient.connected && activeRoomId) {
+      toast.info(`Creating file: ${name}...`);
+      stompClient.publish({
+        destination: `/app/room/${activeRoomId}/file/create`,
+        body: JSON.stringify({ name, language }),
+      });
+    } else {
+      toast.error('Not connected to server');
+    }
+  }, [activeRoomId]);
+
+  const addComment = useCallback((fileId: string, line: number, content: string) => {
+    if (stompClient.connected && activeRoomId) {
+      stompClient.publish({
+        destination: `/app/room/${activeRoomId}/comment/add`,
+        body: JSON.stringify({ fileId, line, content }),
+      });
+    }
+  }, [activeRoomId]);
+
   return {
     room,
     currentUser,
@@ -344,5 +443,17 @@ export const useRoom = (roomId?: string) => {
     broadcastTyping,
     broadcastViewport,
     saveVersion,
+    isRunning,
+    executionResult,
+    isOutputVisible,
+    setIsRunning,
+    setExecutionResult,
+    setIsOutputVisible,
+    files,
+    activeFileId,
+    comments,
+    switchFile,
+    createFileInRoom,
+    addComment,
   };
 };

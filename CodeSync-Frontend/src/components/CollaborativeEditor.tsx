@@ -20,6 +20,16 @@ import { HostControls } from './room/HostControls';
 import { JoinRoomDialog } from './room/JoinRoomDialog';
 import { RoomHeader } from './room/RoomHeader';
 import { VideoPanel } from './video/VideoPanel';
+import { FileExplorer } from './editor/FileExplorer';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Textarea } from '@/components/ui/textarea';
+import { Button } from '@/components/ui/button';
 
 export const CollaborativeEditor: React.FC = () => {
   const navigate = useNavigate();
@@ -45,6 +55,18 @@ export const CollaborativeEditor: React.FC = () => {
     broadcastTyping,
     broadcastViewport,
     saveVersion,
+    isRunning,
+    executionResult,
+    isOutputVisible,
+    setIsRunning,
+    setExecutionResult,
+    setIsOutputVisible,
+    files,
+    activeFileId,
+    comments,
+    switchFile,
+    createFileInRoom,
+    addComment,
   } = useRoom();
   
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -60,11 +82,13 @@ export const CollaborativeEditor: React.FC = () => {
   const [isVideoOpen, setIsVideoOpen] = useState(false);
   const [isParticipantsOpen, setIsParticipantsOpen] = useState(true);
   const [isHostControlsOpen, setIsHostControlsOpen] = useState(false);
-  const [isOutputVisible, setIsOutputVisible] = useState(false);
   const [isOutputExpanded, setIsOutputExpanded] = useState(false);
-  const [isRunning, setIsRunning] = useState(false);
-  const [executionResult, setExecutionResult] = useState<ExecutionResult | null>(null);
   const [stdin, setStdin] = useState('');
+  
+  // Commenting state
+  const [commentLine, setCommentLine] = useState<number | null>(null);
+  const [commentContent, setCommentContent] = useState('');
+  const [isCommenting, setIsCommenting] = useState(false);
 
   // Redirect to auth if not logged in
   useEffect(() => {
@@ -149,33 +173,29 @@ export const CollaborativeEditor: React.FC = () => {
       return;
     }
 
+    // These will be synchronized via WebSockets, but we set them locally
+    // immediately for the person who clicked to ensure responsiveness
     setIsRunning(true);
     setIsOutputVisible(true);
     setExecutionResult(null);
 
     try {
-      const response = await apiClient.post('/api/execute', {
+      await apiClient.post('/api/execute', {
         code, 
         language,
         stdin,
         roomId: room?.id,
       });
-
-      const data = response.data;
-      setExecutionResult({
-        output: data.output || '(No output)',
-        error: data.error,
-        executionTime: data.executionTime || 0,
-        memoryUsed: data.memoryUsed,
-      });
+      // The result will be handled by the STOMP subscription in useRoom
     } catch (err: any) {
+      const errorMessage = err.response?.data?.error || err.message || 'Failed to execute code';
+      setIsRunning(false);
       setExecutionResult({
         output: '',
-        error: err.response?.data?.error || err.message || 'Failed to execute code',
+        error: errorMessage,
         executionTime: 0,
       });
-    } finally {
-      setIsRunning(false);
+      toast.error(errorMessage);
     }
   };
 
@@ -216,6 +236,19 @@ export const CollaborativeEditor: React.FC = () => {
 
   const handleUpdatePermission = (key: keyof RoomPermissions, value: boolean) => {
     updatePermission(key, value);
+  };
+
+  const handleAddComment = (line: number) => {
+    setCommentLine(line);
+    setIsCommenting(true);
+  };
+
+  const submitComment = () => {
+    if (!activeFileId || commentLine === null || !commentContent.trim()) return;
+    addComment(activeFileId, commentLine, commentContent);
+    setCommentContent('');
+    setCommentLine(null);
+    setIsCommenting(false);
   };
 
   // Show loading while checking auth
@@ -267,6 +300,17 @@ export const CollaborativeEditor: React.FC = () => {
       />
 
       <div className="flex-1 flex overflow-hidden">
+        {/* File Explorer */}
+        <div className="w-64 flex-shrink-0 hidden md:block">
+          <FileExplorer
+            files={files}
+            activeFileId={activeFileId}
+            onFileSelect={switchFile}
+            onCreateFile={createFileInRoom}
+            isHost={isHost}
+          />
+        </div>
+
         {/* Main Editor Area */}
         <div className="flex-1 flex flex-col min-w-0">
           {/* Toolbar */}
@@ -294,6 +338,9 @@ export const CollaborativeEditor: React.FC = () => {
               onCursorChange={updateCursor}
               viewports={viewports}
               cursors={cursors}
+              typingUsers={typingUsers}
+              comments={comments.filter(c => c.fileId === activeFileId)}
+              onAddComment={handleAddComment}
               currentUserId={currentUser?.id}
               readOnly={!canEdit}
             />
@@ -377,6 +424,31 @@ export const CollaborativeEditor: React.FC = () => {
           />
         )}
       </div>
+
+      {/* Add Comment Dialog */}
+      <Dialog open={isCommenting} onOpenChange={setIsCommenting}>
+        <DialogContent className="sm:max-w-[425px] bg-background/95 backdrop-blur-xl border-primary/20">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <span>Add Comment</span>
+              <span className="text-xs font-normal text-muted-foreground px-2 py-0.5 bg-muted rounded">Line {commentLine}</span>
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <Textarea
+              placeholder="What do you think about this code?"
+              value={commentContent}
+              onChange={(e) => setCommentContent(e.target.value)}
+              className="min-h-[120px] bg-background/50 resize-none focus:ring-primary/30"
+              autoFocus
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setIsCommenting(false)}>Cancel</Button>
+            <Button onClick={submitComment} disabled={!commentContent.trim()}>Post Comment</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

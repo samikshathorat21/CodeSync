@@ -13,6 +13,10 @@ import com.codesync.repository.RoomRepository;
 import com.codesync.security.UserPrincipal;
 import com.codesync.service.CodeVersionService;
 import com.codesync.service.PresenceService;
+import com.codesync.service.RoomFileService;
+import com.codesync.service.CodeCommentService;
+import com.codesync.dto.room.RoomFileDto;
+import com.codesync.dto.room.CodeCommentDto;
 import lombok.RequiredArgsConstructor;
 import org.springframework.messaging.handler.annotation.DestinationVariable;
 import org.springframework.messaging.handler.annotation.Header;
@@ -34,6 +38,8 @@ public class RoomWsController {
     private final RoomPermissionsRepository permissionsRepository;
     private final CodeVersionService codeVersionService;
     private final PresenceService presenceService;
+    private final RoomFileService roomFileService;
+    private final CodeCommentService codeCommentService;
 
     @MessageMapping("/room/{roomId}/code")
     public void updateCode(
@@ -45,15 +51,81 @@ public class RoomWsController {
         checkCanEdit(roomId, principal.getId());
 
         String code = payload.get("code");
-        Room room = roomRepository.findById(roomId).orElseThrow();
-        room.setCode(code);
-        roomRepository.save(room);
+        String fileId = payload.get("fileId");
 
-        messagingTemplate.convertAndSend("/topic/room/" + roomId + "/code", Map.of(
-                "code", code,
-                "language", room.getLanguage(),
-                "fromUserId", principal.getId(),
-                "ts", System.currentTimeMillis()
+        if (fileId != null) {
+            roomFileService.updateFileContent(fileId, code);
+            messagingTemplate.convertAndSend("/topic/room/" + roomId + "/code", Map.of(
+                    "code", code,
+                    "fileId", fileId,
+                    "fromUserId", principal.getId(),
+                    "ts", System.currentTimeMillis()
+            ));
+        } else {
+            Room room = roomRepository.findById(roomId).orElseThrow();
+            room.setCode(code);
+            roomRepository.save(room);
+
+            messagingTemplate.convertAndSend("/topic/room/" + roomId + "/code", Map.of(
+                    "code", code,
+                    "language", room.getLanguage(),
+                    "fromUserId", principal.getId(),
+                    "ts", System.currentTimeMillis()
+            ));
+        }
+    }
+
+    @MessageMapping("/room/{roomId}/file/create")
+    public void createFile(
+            @DestinationVariable String roomId,
+            Map<String, String> payload,
+            UsernamePasswordAuthenticationToken auth) {
+        
+        UserPrincipal principal = (UserPrincipal) auth.getPrincipal();
+        checkCanEdit(roomId, principal.getId());
+
+        String name = payload.get("name");
+        String language = payload.get("language");
+        
+        System.out.println("Creating file: " + name + " in room: " + roomId);
+        RoomFileDto file = roomFileService.createFile(roomId, name, language);
+        System.out.println("File created with ID: " + file.getId());
+        
+        messagingTemplate.convertAndSend("/topic/room/" + roomId + "/files", Map.of(
+                "type", "CREATE",
+                "file", file
+        ));
+    }
+
+    @MessageMapping("/room/{roomId}/comment/add")
+    public void addComment(
+            @DestinationVariable String roomId,
+            Map<String, Object> payload,
+            UsernamePasswordAuthenticationToken auth) {
+        
+        UserPrincipal principal = (UserPrincipal) auth.getPrincipal();
+        String fileId = (String) payload.get("fileId");
+        Integer line = (Integer) payload.get("line");
+        String content = (String) payload.get("content");
+        
+        codeCommentService.addComment(roomId, fileId, principal.getId(), principal.getDisplayUsername(), line, content);
+    }
+
+    @MessageMapping("/room/{roomId}/file/delete")
+    public void deleteFile(
+            @DestinationVariable String roomId,
+            Map<String, String> payload,
+            UsernamePasswordAuthenticationToken auth) {
+        
+        UserPrincipal principal = (UserPrincipal) auth.getPrincipal();
+        checkCanEdit(roomId, principal.getId());
+
+        String fileId = payload.get("fileId");
+        roomFileService.deleteFile(fileId);
+        
+        messagingTemplate.convertAndSend("/topic/room/" + roomId + "/files", Map.of(
+                "type", "DELETE",
+                "fileId", fileId
         ));
     }
 

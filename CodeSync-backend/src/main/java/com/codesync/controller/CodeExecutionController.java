@@ -35,6 +35,7 @@ public class CodeExecutionController {
     private final AuthorizationService authorizationService;
     private final RoomPermissionsRepository permissionsRepository;
     private final RateLimitService rateLimitService;
+    private final org.springframework.messaging.simp.SimpMessagingTemplate messagingTemplate;
 
     @PostMapping
     public ResponseEntity<?> execute(
@@ -43,11 +44,10 @@ public class CodeExecutionController {
         
         log.info("Execute endpoint called: language='{}', codeLength={}, stdinLength={}, roomId={}, userId={}", 
                  req.getLanguage(), req.getCode().length(), req.getStdin() != null ? req.getStdin().length() : 0, req.getRoomId(), principal.getId());
-        log.debug("Execute request stdin value: '{}', isEmpty: {}", 
-                  req.getStdin(), req.getStdin() == null || req.getStdin().isEmpty());
         
         // 1. Authorization check if roomId is present
-        if (req.getRoomId() != null && !req.getRoomId().isBlank()) {
+        boolean isRoomExecution = req.getRoomId() != null && !req.getRoomId().isBlank();
+        if (isRoomExecution) {
             authorizationService.requireMember(req.getRoomId(), principal.getId());
             
             RoomPermissions permissions = permissionsRepository.findByRoomId(req.getRoomId())
@@ -57,27 +57,53 @@ public class CodeExecutionController {
                 log.warn("Code execution denied for user {} - disabled in room {}", principal.getId(), req.getRoomId());
                 throw new ForbiddenException("Code execution is disabled for this room");
             }
+
+            // Broadcast that execution has started
+            messagingTemplate.convertAndSend("/topic/room/" + req.getRoomId() + "/execution", Map.of(
+                "type", "START",
+                "userId", principal.getId(),
+                "userName", principal.getDisplayUsername()
+            ));
         }
 
         // 2. Rate limiting
         ConsumptionProbe probe = rateLimitService.tryConsume("execute", principal.getId());
         if (!probe.isConsumed()) {
             long waitForRefill = probe.getNanosToWaitForRefill() / 1_000_000_000L;
-            log.warn("Rate limit exceeded for user {}: wait {} seconds", principal.getId(), waitForRefill);
+            
+            if (isRoomExecution) {
+                messagingTemplate.convertAndSend("/topic/room/" + req.getRoomId() + "/execution", Map.of(
+                    "type", "ERROR",
+                    "error", "Rate limit exceeded. Please wait " + waitForRefill + "s"
+                ));
+            }
+
             return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
-                    .header("X-RateLimit-Limit", "10")
-                    .header("X-RateLimit-Remaining", "0")
-                    .header("X-RateLimit-Reset", String.valueOf(System.currentTimeMillis() / 1000 + waitForRefill))
-                    .body(Map.of(
-                            "error", "Too many requests",
-                            "retryAfter", waitForRefill
-                    ));
+                    .body(Map.of("error", "Too many requests", "retryAfter", waitForRefill));
         }
 
         // 3. Execution
-        ExecuteResponse response = codeExecutionService.execute(req);
-        log.info("Code execution completed: language='{}', status='{}', userId={}", 
-                 req.getLanguage(), response.getStatus(), principal.getId());
-        return ResponseEntity.ok(response);
+        try {
+            ExecuteResponse response = codeExecutionService.execute(req);
+            
+            if (isRoomExecution) {
+                messagingTemplate.convertAndSend("/topic/room/" + req.getRoomId() + "/execution", Map.of(
+                    "type", "SUCCESS",
+                    "result", response,
+                    "userId", principal.getId()
+                ));
+            }
+            
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("Execution failed", e);
+            if (isRoomExecution) {
+                messagingTemplate.convertAndSend("/topic/room/" + req.getRoomId() + "/execution", Map.of(
+                    "type", "ERROR",
+                    "error", "Internal execution error"
+                ));
+            }
+            throw e;
+        }
     }
 }

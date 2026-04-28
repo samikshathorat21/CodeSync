@@ -37,6 +37,27 @@ export interface RoomPermissions {
   canAudio: boolean;
 }
 
+export interface CodeComment {
+  id: string;
+  fileId: string;
+  roomId: string;
+  line: number;
+  userId: string;
+  userName: string;
+  content: string;
+  createdAt: Date;
+}
+
+export interface RoomFile {
+  id: string;
+  roomId: string;
+  name: string;
+  content: string;
+  language: string;
+  updatedAt: Date;
+  comments?: CodeComment[];
+}
+
 export interface Room {
   id: string;
   name: string;
@@ -44,6 +65,7 @@ export interface Room {
   language: string;
   hostId: string;
   participants: User[];
+  files: RoomFile[];
   permissions: RoomPermissions;
   createdAt: Date;
 }
