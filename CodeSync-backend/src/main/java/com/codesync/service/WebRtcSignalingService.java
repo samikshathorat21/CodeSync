@@ -43,8 +43,8 @@ public class WebRtcSignalingService {
 
         log.debug("Relaying {} signal from {} to {} in room {}", msg.getType(), fromUserId, msg.getToUserId(), roomId);
         
-        // Relay to targeted user
-        messagingTemplate.convertAndSendToUser(msg.getToUserId(), "/queue/webrtc", msg);
+        // Broadcast to room-level signal topic; frontend filters by toUserId
+        messagingTemplate.convertAndSend("/topic/room/" + roomId + "/webrtc/signal", msg);
     }
 
     public void broadcastMediaState(String roomId, MediaStateMsg msg, String userId) {

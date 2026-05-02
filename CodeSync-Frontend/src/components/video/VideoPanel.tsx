@@ -178,21 +178,21 @@ export const VideoPanel: React.FC<VideoPanelProps> = ({
   const [isExpanded, setIsExpanded] = useState(false);
 
   const {
-    localStream = null,
-    screenStream = null,
-    remoteStreams = new Map(),
-    remoteScreenStreams = new Map(),
-    isConnecting = false,
-    isScreenSharing = false,
-    error = null,
-    startCall = async () => {},
-    endCall = () => {},
-    startScreenShare = async () => {},
-    stopScreenShare = () => {},
-    toggleVideo = () => {},
-    toggleAudio = () => {},
-    broadcastMediaState = () => {},
-  } = (useWebRTC(roomId, currentUserId) as any) || {};
+    localStream,
+    screenStream,
+    remoteStreams,
+    remoteScreenStreams,
+    isConnecting,
+    isScreenSharing,
+    error,
+    startCall,
+    endCall,
+    startScreenShare,
+    stopScreenShare,
+    toggleVideo,
+    toggleAudio,
+    broadcastMediaState,
+  } = useWebRTC(roomId, currentUserId);
 
   // Speaking detection
   const isLocalSpeaking = useAudioLevel(localStream);
